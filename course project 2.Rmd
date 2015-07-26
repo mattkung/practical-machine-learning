@@ -1,0 +1,147 @@
+---
+title: "course project Practical machine learning"
+author: "Kung"
+date: "July 26, 2015"
+output: pdf_document
+---
+#Exectuive summary 
+Quantified self movement ??? a group of enthusiasts measuring about themselves regularly to improve their health, is trending now. During past development, people only care how much activity they do, instead of how well they do it. This report tries to build a machine learning algorithm to predict the manner users perform the dumbbell lifting exercise. 7 different classification models are tested and the out of sample error is estimated by cross-validation error. This report suggests that bagging model and random forestodel are better than other models in predicting classification of users' activities. 
+
+
+#Downlad data and pre-processing 
+
+Download train data first. 
+```{r,results='hide',message=FALSE,warning=FALSE}
+library(caret)
+```
+```{r,results='hide',message=FALSE,cache=TRUE}
+fileUrl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileUrl,destfile = "./train.csv",method="curl")
+data<-read.csv("./train.csv",na.strings=c("NA","NaN", "  ","#DIV/0!"))
+```
+
+Since there are 53 columns which contained NA, the next step will pick up the these columns and exclude them from train data. 
+```{r,cache=TRUE,message=FALSE}
+pattern<-c("kurtosis","skewness","max","min","amplitude","var","avg","stddev")
+ncol(data)
+removeIndex<-grep(paste(pattern,collapse = "|"),colnames(data))
+removeIndex<-c(c(1:7),removeIndex)
+newdata<-data[,-removeIndex]
+ncol(newdata)
+```
+
+The same process will be executed on test data as well.
+```{r,cache=TRUE,message=FALSE}
+fileUrl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileUrl,destfile = "./test.csv",method="curl")
+data<-read.csv("./test.csv",na.strings=c("NA","NaN", "  ","#DIV/0!"))
+testdata<-data[,-removeIndex]
+```
+
+
+There are 19622 rows in the train data and 53 columns , which will consume considerable computing resources if we use all the data to train our model. Therefore, this report only use 1/10 train data to build our model.
+
+Create 10 parts of data 
+```{r,cache=TRUE,message=FALSE}
+ncol(newdata)
+nrow(newdata)
+set.seed(123)
+folds<-createFolds(newdata$class,k=10,list=TRUE,returnTrain = FALSE)
+```
+
+Use first part of data to build our training set and testing set 
+```{r,cache=TRUE}
+part1<-newdata[folds[[1]],]  
+trainIndex<-createDataPartition(part1$classe,p=0.9,list=FALSE)
+training<-part1[trainIndex,]
+testing<-part1[-trainIndex,]
+```
+
+
+# test 7 different models on training set
+Set the cross validation. 
+Through this setting, all of the model we test will be evaluated through CV method, and we can use CV error to estimate their test error. 
+```{r}
+set.seed(617)
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=3)
+```
+
+linear discriminant analysis
+```{r,results='hide',cache=TRUE,message=FALSE}
+set.seed(617)
+ldafit<-train(classe~.,data=training,method="lda",trControl = fitControl)
+```
+
+Quadratic Discriminant analysis
+```{r,cache=TRUE,message=FALSE}
+set.seed(617)
+qdafit<-train(classe~.,data=training,method="qda",trControl = fitControl)
+```
+
+K-Nearest Neighbor Classification
+```{r,cache=TRUE,message=FALSE}
+set.seed(617)
+knnfit<-train(classe~.,data=training,method="knn",trControl = fitControl,preProcess=c("center","scale"),tuneLength=20)
+```
+
+Simple tree model
+```{r,cache=TRUE,message=FALSE}
+set.seed(617)
+treefit<-train(classe~.,data=training,method="rpart",trControl = fitControl)
+```
+
+Boosting tree model 
+```{r,result="hide",cache=TRUE,message=FALSE}
+set.seed(617)
+gbmfit<-train(classe~.,data=training,method="gbm",verbose = FALSE,trControl=trainControl(method="repeatedcv",number=10,repeats=3))
+```
+Random forest tree model
+```{r,result="hide",cache=TRUE,message=FALSE}
+set.seed(617)
+rffit<-train(classe~.,method="rf",data=training,prox=TRUE,trControl=trainControl(method="repeatedcv",number=10,repeats=3))
+```
+Bagging tree model 
+```{r,result="hide",cache=TRUE,message=FALSE}
+set.seed(617)
+bagfit<-train(classe~.,data=training,method="treebag",trControl=trainControl(method="repeatedcv",number=10,repeats=3))
+```
+
+#Compare CV error on Training set 
+Collect all of cross validation errors here to compare which one is the best predictor on training set. The result shows the bagging model and ndom forest model have the most accurate accuracy in all models. 
+```{r}
+cvValues<-resamples(list(lda=ldafit,qda=qdafit,knn=knnfit,tree=treefit,bag=bagfit,gbm=gbmfit,rf=rffit))
+summary(cvValues)
+```
+According to the table above, we suggest that this data might not be linear, since linear discriminant analysis is worse than quadratic discriminant analysis. In the same time, kNN method is also worse than quadratic discriminant analysis, which shows the machine learning algorithm we are looking for is parameter method. Therefore when we train our model using tree model and its extensions ,the performance is better than former three models. 
+
+
+
+# Test on test set
+Then we test the model on test set. From the table below, the accuracy of baggingg model is "90.7%" and the one of bagging model is "93.8%" as well.
+(Test set is the one part of data we exclude from the train data set, instead of the test data from course website.)
+
+```{r,result="hide"}
+ldatest<-confusionMatrix(testing$classe,predict(ldafit,testing))
+qdatest<-confusionMatrix(testing$classe,predict(qdafit,testing))
+knntest<-confusionMatrix(testing$classe,predict(knnfit,testing))
+treetest<-confusionMatrix(testing$classe,predict(treefit,testing))
+bagtest<-confusionMatrix(testing$classe,predict(bagfit,testing))
+rftest<-confusionMatrix(testing$classe,predict(rffit,testing))
+gbmtest<-confusionMatrix(testing$classe,predict(gbmfit,testing))
+```
+```{r,echo=FALSE}
+data.frame(ldatest$overall,qdatest$overall,knntest$overall,treetest$overall,bagtest$overall,rftest$overall,gbmtest$overall)
+```
+
+#Test data 
+We then use the boosting model and bagging model to predict the test data. 
+```{r}
+predict(bagfit,testdata)
+```
+```{r}
+predict(gbmfit,testdata)
+```
+
+#Summary 
+Through the part 2 assignment of practical machine learning, we first use gbmfit to submit answer, and get 2 wrong answers, which is still 90% accurate. We then change bagging model to predict the test data and get 100% accurate.
+
